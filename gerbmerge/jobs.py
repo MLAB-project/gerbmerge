@@ -27,6 +27,7 @@ import config
 import makestroke
 import amacro
 import geometry
+import util
 
 # Parsing Gerber/Excellon files is currently very brittle. A more robust
 # RS274X/Excellon parser would be a good idea and allow this program to work
