@@ -178,11 +178,17 @@ METRIC,000.000
 """)
         fid.write('%\n')	 
     else:						            # mm but not Kicad ... like in version 1.9.  
-	fid.write( \
+      fid.write( \
 """M48
 METRIC,0000.00             
 """)
-        fid.write('%\n')
+      fid.write('%\n')
+  else:
+    fid.write( \
+"""M48
+INCH,TZ             
+""")
+    fid.write('%\n')
 
 
 def writeExcellonFooter(fid):
