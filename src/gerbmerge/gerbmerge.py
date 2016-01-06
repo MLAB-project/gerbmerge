@@ -39,19 +39,8 @@ http://ruggedcircuits.com/gerbmerge
 import sys
 import getopt
 
-import aptable
-import jobs
-import config
-import parselayout
-import fabdrawing
-import strokes
-import tilesearch1
-import tilesearch2
-import placement
-import schwartz
-import scoring
-import drillcluster
-import util
+from gerbmerge import aptable, jobs, config, parselayout, fabdrawing
+from gerbmerge import strokes, tilesearch1, tilesearch2, placement, schwartz, scoring, drillcluster, util
 
 VERSION_MAJOR=1
 VERSION_MINOR='9.1a'
