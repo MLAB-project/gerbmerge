@@ -36,11 +36,15 @@ Rugged Circuits LLC
 http://ruggedcircuits.com/gerbmerge
 """
 
+
 import sys
 import getopt
 
-from gerbmerge import aptable, jobs, config, parselayout, fabdrawing
-from gerbmerge import strokes, tilesearch1, tilesearch2, placement, schwartz, scoring, drillcluster, util
+import aptable
+import jobs
+import config
+import parselayout, fabdrawing
+import strokes, tilesearch1, tilesearch2, placement, schwartz, scoring, drillcluster, util
 
 VERSION_MAJOR=1
 VERSION_MINOR='9.1a'
@@ -54,6 +58,11 @@ config.PlacementFile = None
 
 # This is a handle to a GUI front end, if any, else None for command-line usage
 GUI = None
+
+def updateGUI(text = None):
+  global GUI
+  if GUI != None:
+    GUI.updateProgress(text)
 
 def usage():
   print \
@@ -366,7 +375,7 @@ def merge(opts, args, gui = None):
       else:
         raise RuntimeError, 'Unknown octagon format'
     elif opt in ('--random-search',):
-      config.AutoSearchType = RANDOM_SEARCH
+      config.AutoSearchType = RANDOM_SEARCHupdateGUI
     elif opt in ('--full-search',):
       config.AutoSearchType = EXHAUSTIVE_SEARCH
     elif opt in ('--rs-fsjobs',):
@@ -843,11 +852,6 @@ def merge(opts, args, gui = None):
 
   # Done!
   return 0
-
-def updateGUI(text = None):
-  global GUI
-  if GUI != None:
-    GUI.updateProgress(text)
 
 if __name__=="__main__":
   try:

@@ -13,7 +13,6 @@ http://ruggedcircuits.com/gerbmerge
 
 import config
 
-
 def in2gerb(value):
 # add metric support (1/1000 mm vs. 1/100,000 inch)
     if config.Config['measurementunits'] == 'inch':

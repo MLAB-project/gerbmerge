@@ -17,6 +17,7 @@ import config
 import tiling
 import tilesearch1
 
+import gerbmerge
 
 _StartTime = 0.0           # Start time of tiling
 _CkpointTime = 0.0         # Next time to print stats

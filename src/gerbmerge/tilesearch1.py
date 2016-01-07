@@ -15,6 +15,8 @@ import time
 import config
 import tiling
 
+import gerbmerge
+
 _StartTime = 0.0           # Start time of tiling
 _CkpointTime = 0.0         # Next time to print stats
 _Placements = 0L           # Number of placements attempted

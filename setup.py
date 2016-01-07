@@ -51,6 +51,6 @@ URL below.
         'Programming Language :: Python :: 2.7',
     ],
 
-    scripts=['src/gerbmerge/gerbmerge', ]
+    scripts=['bin/gerbmerge', ]
 )
 
