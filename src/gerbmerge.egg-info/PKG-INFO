@@ -1,0 +1,32 @@
+Metadata-Version: 1.1
+Name: gerbmerge
+Version: 1.9.1a0
+Summary: Merge multiple Gerber/Excellon files
+Home-page: https://github.com/MLAB-project/gerbmerge
+Author: Rugged Circuits LLC
+Author-email: support@ruggedcircuits.com
+License: Lesser General Public License v3
+Download-URL: https://github.com/MLAB-project/MLAB-I2c-modules/archive/0.3.tar.gz
+Description: GerbMerge is a program that combines several Gerber
+        (i.e., RS274-X) and Excellon files into a single set
+        of files. This program is useful for combining multiple
+        printed circuit board layout files into a single job.
+        
+        To run the program, invoke the Python interpreter on the
+        gerbmerge.py file. On Windows, if you installed GerbMerge in
+        C:/Python24, for example, open a command window (DOS box)
+        and type:
+            C:/Python24/gerbmerge.bat
+        
+        For more details on installation or running GerbMerge, see the
+        URL below.
+        
+Keywords: gerber,kicad
+Platform: UNKNOWN
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)
+Classifier: Natural Language :: Czech
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Programming Language :: Python :: 2.7
+Provides: gerbmerge
