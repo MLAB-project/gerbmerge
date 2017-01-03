@@ -312,10 +312,9 @@ fabrication drawing.</LI>
   <OL>
     <LI>Make stand alone installable package which makes gerbmerge executable from commandline console. </LI>
     <LI>Transfer functionalities to python 3 compatible branch https://github.com/MLAB-project/gerbmerge3</LI>
-    <LI>A graphical interface for interactive placement</LI>
+    <LI>Add possibility of panelizing plated and non-plated holes in sigle job</LI>
     <LI>Better reporting of parse errors in the layout and configuration files</LI>
     <LI>Implement simple primitive for panelizing a single job in an array</LI>
-    <LI>More intelligent placement algorithms, possibly based on the fabric cutting problem.</LI>
     <LI>Accept aperture macro parameters and operators
   </OL>
 
