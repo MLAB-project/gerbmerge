@@ -212,6 +212,35 @@ def parseToolList(fname):
 
   return TL
 
+def handleIncludes(cp):
+  for section in ['DEFAULT'] + cp.sections():
+    if not cp.has_option(section, 'Include'):
+      continue
+
+    includes = cp.get(section, 'Include').split(',')
+    cp.remove_option(section, 'Include')
+
+    for fn in includes:
+      inc_cp = ConfigParser.ConfigParser()
+      inc_cp.readfp(file(fn, 'rt'))
+
+      # merge the IncludeSection of the included file
+      # into the section from which the include was initiated
+      if inc_cp.has_section('IncludeSection'):
+        for key, value in inc_cp.items('IncludeSection', True):
+          print (key, value)
+          if not cp.has_option(section, key):
+            cp.set(section, key, value)
+
+      # merge the other sections into the respective section
+      for inc_section in set(['DEFAULT'] + inc_cp.sections()) \
+                         - set(['IncludeSection']):
+        if inc_section != 'DEFAULT' and not cp.has_section(inc_section):
+          cp.add_section(inc_section)
+        for key, value in inc_cp.items(inc_section, True):
+          if not cp.has_option(inc_section, key):
+            cp.set(inc_section, key, value)
+
 # This function parses the job configuration file and does
 # everything needed to:
 #
@@ -229,6 +258,7 @@ def parseConfigFile(fname, Config=Config, Jobs=Jobs):
 
   CP = ConfigParser.ConfigParser()
   CP.readfp(file(fname,'rt'))
+  handleIncludes(CP)
 
   # First parse global options
   if CP.has_section('Options'):
