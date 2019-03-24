@@ -107,6 +107,378 @@ XIgnoreList = ( \
   re.compile(r'^G05$'),    # KHK
   )
 
+class ExcellonJob:
+  """docstring for ExcellonJob"""
+  def __init__(self, parent):
+    self.parent = parent
+
+    self.xcommands = {}  
+
+    # Excellon commands are grouped by tool number in a dictionary.
+    # This is to help sorting all jobs and writing out all plunge
+    # commands for a single tool.
+    # 
+    # The key to this dictionary is the full tool name, e.g., T03
+    # as a string. Each command is an (X,Y) integer tuple.
+    self.xcommands = {}
+
+    # How many decimal digits of precision there are in the Excellon file.
+    # A value greater than 0 overrides the global ExcellonDecimals setting
+    # for this file, allowing jobs with different Excellon decimal settings
+    # to be combined.
+    self.ExcellonDecimals = 0     # 0 means global value prevails
+
+    # This is a dictionary mapping LOCAL tool names (e.g., T03) to diameters
+    # in inches for THIS JOB. This dictionary will be initially empty
+    # for old-style Excellon files with no embedded tool sizes. The
+    # main program will construct this dictionary from the global tool
+    # table in this case, once all jobs have been read in.
+    self.xdiam = {}
+
+    # This is a mapping from tool name to diameter for THIS JOB
+    self.ToolList = None
+
+  def parseExcellon(self, fullname):
+    #print 'Reading data from %s ...' % fullname
+
+    fid = file(fullname, 'rt')
+    currtool = None
+    suppress_leading = True     # Suppress leading zeros by default, equivalent to 'INCH,TZ'
+
+    # We store Excellon X/Y data in ten-thousandths of an inch. If the Config
+    # option ExcellonDecimals is not 4, we must adjust the values read from the
+    # file by a divisor to convert to ten-thousandths.  This is only used in
+    # leading-zero suppression mode. In trailing-zero suppression mode, we must
+    # trailing-zero-pad all input integers to M+N digits (e.g., 6 digits for 2.4 mode)
+    # specified by the 'zeropadto' variable.
+    
+    # KHK begin: I know that this could be done with a few lines less, but in my opinion it is easier to understand 
+    # with a little bit "overhead"
+    if config.Config['measurementunits'] == 'mm':                     # KHK "mm" (from layout.cfg file)
+        if config.Config['kicadfilesinmetricunits'] == 1:               # KHK for Kicad metric file support
+            if self.ExcellonDecimals > 0:
+               divisor = 10.0**(3 - self.ExcellonDecimals)
+               zeropadto = 3+self.ExcellonDecimals
+            else:
+               divisor = 10.0**(3 - config.Config['excellondecimals'])
+               zeropadto = 3+config.Config['excellondecimals']
+
+        else:                       # "mm" but not Kicad ... like in version 1.9.  
+            if self.ExcellonDecimals > 0:
+              divisor = 10.0**(4 - self.ExcellonDecimals)
+              zeropadto = 2+self.ExcellonDecimals
+            else:
+              divisor = 10.0**(4 - config.Config['excellondecimals'])
+              zeropadto = 2+config.Config['excellondecimals']
+    else:                                                            # KHK "inch" =  6 digits for 2.4 mode
+        if self.ExcellonDecimals > 0:
+          divisor = 10.0**(4 - self.ExcellonDecimals)
+          zeropadto = 2+self.ExcellonDecimals
+        else:
+          divisor = 10.0**(4 - config.Config['excellondecimals'])
+          zeropadto = 2+config.Config['excellondecimals'] 
+
+    
+    # Protel takes advantage of optional X/Y components when the previous one is the same,
+    # so we have to remember them.
+    last_x = last_y = 0
+
+    # Helper function to convert X/Y strings into integers in units of ten-thousandth of an inch.
+    def xln2tenthou(L, divisor=divisor, zeropadto=zeropadto):
+      V = []
+      for s in L:
+        if not suppress_leading:
+          s = s + '0'*(zeropadto-len(s))
+        V.append(int(round(int(s)*divisor)))
+      return tuple(V)
+
+    for line in fid.xreadlines():
+      # Get rid of CR characters
+      line = string.replace(line, '\x0D', '')
+
+# add support for DipTrace
+      if line[:6]=='METRIC':
+        if (config.Config['measurementunits'] == 'inch'):
+          raise RuntimeError, "File %s units do match config file" % fullname
+      if line[:6]=='INCH':                # modified by KHK
+        if (config.Config['measurementunits'] == 'mm'):                     # modified by KHK
+          raise RuntimeError, "File %s units do match config file" % fullname   # modified by KHK
+
+      if line[:3] == 'T00': # a tidying up that we can ignore
+        continue
+# end metric/diptrace support
+
+# KHK add support for KiCad
+      if line[:3] == 'M70': # a tidying up that we can ignore
+        continue
+      if line[:3] == 'M71': # a tidying up that we can ignore
+        continue
+      if line[:6] == 'FMAT,2': # a tidying up that we can ignore
+        continue
+# KHK end support for KiCad
+
+
+      # Protel likes to embed comment lines beginning with ';'
+      if line[0]==';':
+        continue
+
+      # Check for leading/trailing zeros included ("INCH,LZ" or "INCH,TZ")
+      match = xzsup_pat.match(line)
+      if match:
+        if match.group(1)=='L':
+          # LZ --> Leading zeros INCLUDED
+          suppress_leading = False
+        else:
+          # TZ --> Trailing zeros INCLUDED
+          suppress_leading = True
+        continue
+        
+      # KHK fix for METRIC Check for leading/trailing zeros included ("METRIC,LZ" or "METRIC,TZ")
+      match = xzsup2_pat.match(line)
+      if match:
+        if match.group(1)=='L':
+          # LZ --> Leading zeros INCLUDED
+          suppress_leading = False
+        else:
+          # TZ --> Trailing zeros INCLUDED
+          suppress_leading = True
+        continue
+
+
+      # See if a tool is being defined. First try to match with tool name+size
+      match = xtdef_pat.match(line)    # xtdef_pat and xtdef2_pat expect tool name and diameter
+      if match is None:                # but xtdef_pat expects optional feed/speed between T and C
+        match = xtdef2_pat.match(line) # and xtdef_2pat expects feed/speed at the end
+      if match:
+        currtool, diam = match.groups()
+        try:
+          diam = float(diam)
+        except:
+          raise RuntimeError, "File %s has illegal tool diameter '%s'" % (fullname, diam)
+
+        # Canonicalize tool number because Protel (of course) sometimes specifies it
+        # as T01 and sometimes as T1. We canonicalize to T01.
+        currtool = 'T%02d' % int(currtool[1:])
+
+        if self.xdiam.has_key(currtool):
+          raise RuntimeError, "File %s defines tool %s more than once" % (fullname, currtool)
+        self.xdiam[currtool] = diam
+        continue
+
+      # Didn't match TxxxCyyy. It could be a tool change command 'Tdd'.
+      match = xtool_pat.match(line)
+      if match:
+        currtool = match.group(1)
+
+        # Canonicalize tool number because Protel (of course) sometimes specifies it
+        # as T01 and sometimes as T1. We canonicalize to T01.
+        currtool = 'T%02d' % int(currtool[1:])
+        if currtool == 'T00': # added by KHK for KiCAD support
+          continue    # added by KHK for KiCAD support
+
+        # Diameter will be obtained from embedded tool definition, local tool list or if not found, the global tool list
+        try:
+          diam = self.xdiam[currtool]
+        except:
+          if self.ToolList:
+            try:
+              diam = self.ToolList[currtool]
+            except:
+              raise RuntimeError, "File %s uses tool code %s that is not defined in the job's tool list" % (fullname, currtool)
+          else:
+            try:
+              diam = config.DefaultToolList[currtool]
+            except:
+              #print config.DefaultToolList
+              raise RuntimeError, "File %s uses tool code %s that is not defined in default tool list" % (fullname, currtool)
+
+        self.xdiam[currtool] = diam
+        continue
+
+      # Plunge command?
+      match = xydraw_pat.match(line)
+      if match:
+        x, y = xln2tenthou(match.groups())
+      else:
+        match = xdraw_pat.match(line)
+        if match:
+          x = xln2tenthou(match.groups())[0]
+          y = last_y
+        else:
+          match = ydraw_pat.match(line)
+          if match:
+            y = xln2tenthou(match.groups())[0]
+            x = last_x
+          
+      if match:
+        if currtool is None:
+          raise RuntimeError, 'File %s has plunge command without previous tool selection' % fullname
+
+        try:
+          self.xcommands[currtool].append((x,y))
+        except KeyError:
+          self.xcommands[currtool] = [(x,y)]
+
+        last_x = x
+        last_y = y
+        continue
+
+      # It had better be an ignorable
+      for pat in XIgnoreList:
+        if pat.match(line):
+          break
+      else:
+        raise RuntimeError, 'File %s has uninterpretable line:\n  %s' % (fullname, line)
+
+  def fixcoordinates(self, x_shift, y_shift):
+    # Shift all excellon commands
+    for tool, command in self.xcommands.iteritems():
+    
+      # Loop through each command in each layer
+      for index in range( len(command) ):
+        c = command[index]
+        
+        # Shift X and Y coordinate of command
+        command_list = list(c)                              ## convert tuple to list
+        if ( type( command_list[0] ) == types.IntType ) \
+        and ( type( command_list[1] ) == types.IntType ):  ## ensure that first two elemenst are integers
+          
+          # KHK: I know that this could be done with a few lines less, but in my opinion it is easier to understand 
+          # with a little bit "overhead"
+          if config.Config['measurementunits'] == 'mm':             # KHK from layout.cfg file
+            if config.Config['kicadfilesinmetricunits'] == 1:       # KHK for Kicad metric file support
+               command_list[0] += x_shift
+               command_list[1] += y_shift
+            else:
+               command_list[0] += x_shift/10                        # mm but not Kicad ... like in version 1.9.  
+               command_list[1] += y_shift/10             
+          else:                                                     # KHK inch
+            command_list[0] += x_shift/10
+            command_list[1] += y_shift/10
+            
+          
+          
+        command[index] = tuple(command_list)                ## convert list back to tuple
+        
+      self.xcommands[tool] = command                        ## set modified command
+
+
+  def findTools(self, diameter):
+    "Find the tools, if any, with the given diameter in inches. There may be more than one!"
+    L = []
+    for tool, diam in self.xdiam.items():
+      if diam==diameter:
+        L.append(tool)
+    return L
+
+  def writeExcellon(self, fid, diameter, Xoff, Yoff):
+    "Write out the data such that the lower-left corner of this job is at the given (X,Y) position, in inches"
+    
+    # First convert given inches to 2.4 co-ordinates. Note that Gerber is 2.5 (as of GerbMerge 1.2)
+    # and our internal Excellon representation is 2.4 as of GerbMerge
+    # version 0.91. We use X,Y to calculate DX,DY in 2.4 units (i.e., with a
+    # resolution of 0.0001".
+    # add metric support (1/1000 mm vs. 1/100,000 inch)
+    if config.Config['measurementunits'] == 'inch':
+      X = int(round(Xoff/0.00001))  # First work in 2.5 format to match Gerber
+      Y = int(round(Yoff/0.00001))
+    else:
+      X = int(round(Xoff/0.001))  # First work in 5.3 format to match Gerber
+      Y = int(round(Yoff/0.001))
+
+    # Now calculate displacement for each position so that we end up at specified origin
+    DX = X - self.parent.minx
+    DY = Y - self.parent.miny
+
+    # Now round down to 2.4 format for inch and mm but not Kicad
+    # this scaling seems to work for either unit system
+    if config.Config['measurementunits'] == 'mm':                 # KHK for layout.cfg file
+        if config.Config['kicadfilesinmetricunits'] == 1:            # KHK for Kicad metric file support
+           DX = int(round(DX))
+           DY = int(round(DY)) 
+        else:                       # mm but not Kicad ... like in version 1.9.  
+           DX = int(round(DX/10.0))
+           DY = int(round(DY/10.0)) 
+    else:                                                           # KHK inch
+        DX = int(round(DX/10.0))
+        DY = int(round(DY/10.0))
+
+    ltools = self.findTools(diameter)
+
+    if config.Config['excellonleadingzeros']:
+      fmtstr = 'X%06dY%06d\n'
+    else:
+      fmtstr = 'X%dY%d\n'
+
+    # Boogie
+    for ltool in ltools:
+      if self.xcommands.has_key(ltool):
+        for cmd in self.xcommands[ltool]:
+          x, y = cmd
+          fid.write(fmtstr % (x+DX, y+DY))
+
+  def writeDrillHits(self, fid, diameter, toolNum, Xoff, Yoff):
+    """Write a drill hit pattern. diameter is tool diameter in inches, while toolNum is
+    an integer index into strokes.DrillStrokeList"""
+
+    # add metric support (1/1000 mm vs. 1/100,000 inch)
+    if config.Config['measurementunits'] == 'inch':
+      # First convert given inches to 2.5 co-ordinates
+      X = int(round(Xoff/0.00001))
+      Y = int(round(Yoff/0.00001))
+    else:
+      # First convert given inches to 5.3 co-ordinates
+      X = int(round(Xoff/0.001))
+      Y = int(round(Yoff/0.001))
+
+    # Now calculate displacement for each position so that we end up at specified origin
+    DX = X - self.parent.minx
+    DY = Y - self.parent.miny
+
+    # Do NOT round down to 2.4 format. These drill hits are in Gerber 2.5 format, not
+    # Excellon plunge commands.
+
+    ltools = self.findTools(diameter)
+
+    for ltool in ltools:
+      if self.xcommands.has_key(ltool):
+        for cmd in self.xcommands[ltool]:
+          x, y = cmd
+          # add metric support (1/1000 mm vs. 1/100,000 inch)
+          #  makestroke.drawDrillHit(fid, 10*x+DX, 10*y+DY, toolNum)            # KHK this was the original line
+          if config.Config['measurementunits'] == 'mm':                     # KHK from layout.cfg file
+            if config.Config['kicadfilesinmetricunits'] == 1:                  # KHK for Kicad metric file support
+              makestroke.drawDrillHit(fid, x+DX, y+DY, toolNum) 
+            else:                            # mm but not Kicad ... like in version 1.9. 
+          # TODO - verify metric scaling is correct??? 
+              makestroke.drawDrillHit(fid, 10*x+DX, 10*y+DY, toolNum) 
+          else:                                                                 # KHK inch
+             makestroke.drawDrillHit(fid, 10*x+DX, 10*y+DY, toolNum)
+
+  def trimExcellon(self):
+    "Remove plunge commands that are outside job dimensions"
+    keys = self.xcommands.keys()
+    for toolname in keys:
+      # Remember Excellon is 2.4 format while Gerber data is 2.5 format
+      # KHK: Excellon from Kicad is in 3.3 format
+      # add metric support (1/1000 mm vs. 1/100,000 inch)
+      # the normal metric scale factor isn't working right, so we'll leave it alone!!!!?
+      
+      if config.Config['measurementunits'] == 'mm':                       # KHK from layout.cfg file
+        if config.Config['kicadfilesinmetricunits'] == 1:                # KHK for Kicad metric file support
+          validList = [(x,y) for x,y in self.xcommands[toolname] if self.parent.inBorders(x,y)]
+        else:                              # KHK mm but not Kicad ... like in version 1.9.  
+          validList = [(x,y) for x,y in self.xcommands[toolname] if self.parent.inBorders(0.1*x,0.1*y)]
+      else:                                                               # KHK inch
+        validList = [(x,y) for x,y in self.xcommands[toolname] if self.parent.inBorders(10*x,10*y)]
+      
+ 
+      if validList:
+        self.xcommands[toolname] = validList
+      else:
+        del self.xcommands[toolname]
+        del self.xdiam[toolname]
+
 # A Job is a single input board. It is expected to have:
 #    - a board outline file in RS274X format
 #    - several (at least one) Gerber files in RS274X format
@@ -168,32 +540,10 @@ class Job:
     # GLOBAL aperture codes in the GAT, not ones local to this layer.
     self.apertures = {}
 
-    # Excellon commands are grouped by tool number in a dictionary.
-    # This is to help sorting all jobs and writing out all plunge
-    # commands for a single tool.
-    # 
-    # The key to this dictionary is the full tool name, e.g., T03
-    # as a string. Each command is an (X,Y) integer tuple.
-    self.xcommands = {}
-
-    # This is a dictionary mapping LOCAL tool names (e.g., T03) to diameters
-    # in inches for THIS JOB. This dictionary will be initially empty
-    # for old-style Excellon files with no embedded tool sizes. The
-    # main program will construct this dictionary from the global tool
-    # table in this case, once all jobs have been read in.
-    self.xdiam = {}
-
-    # This is a mapping from tool name to diameter for THIS JOB
-    self.ToolList = None
-
     # How many times to replicate this job if using auto-placement
     self.Repeat = 1
 
-    # How many decimal digits of precision there are in the Excellon file.
-    # A value greater than 0 overrides the global ExcellonDecimals setting
-    # for this file, allowing jobs with different Excellon decimal settings
-    # to be combined.
-    self.ExcellonDecimals = 0     # 0 means global value prevails
+    self.drill_layers = {}
 
   def width_in(self):
     # add metric support (1/1000 mm vs. 1/100,000 inch)
@@ -249,37 +599,14 @@ class Job:
           command[index] = tuple(command_list)              ## convert list back to tuple
           
       self.commands[layer] = command                        ## set modified command
-     
-    # Shift all excellon commands
-    for tool, command in self.xcommands.iteritems():
-    
-      # Loop through each command in each layer
-      for index in range( len(command) ):
-        c = command[index]
-        
-        # Shift X and Y coordinate of command
-        command_list = list(c)                              ## convert tuple to list
-        if ( type( command_list[0] ) == types.IntType ) \
-        and ( type( command_list[1] ) == types.IntType ):  ## ensure that first two elemenst are integers
-          
-          # KHK: I know that this could be done with a few lines less, but in my opinion it is easier to understand 
-          # with a little bit "overhead"
-          if config.Config['measurementunits'] == 'mm':             # KHK from layout.cfg file
-            if config.Config['kicadfilesinmetricunits'] == 1:       # KHK for Kicad metric file support
-               command_list[0] += x_shift
-               command_list[1] += y_shift
-            else:
-               command_list[0] += x_shift/10                        # mm but not Kicad ... like in version 1.9.  
-               command_list[1] += y_shift/10             
-          else:                                                     # KHK inch
-            command_list[0] += x_shift/10
-            command_list[1] += y_shift/10
-            
-          
-          
-        command[index] = tuple(command_list)                ## convert list back to tuple
-        
-      self.xcommands[tool] = command                        ## set modified command
+
+    for _, layer in self.drill_layers.iteritems():
+      layer.fixcoordinates(x_shift, y_shift)
+
+  def parseExcellon(self, fullname, layername):
+    job = ExcellonJob(self)
+    job.parseExcellon(fullname)
+    self.drill_layers[layername] = job
 
   def parseGerber(self, fullname, layername, updateExtents = 0):
     """Do the dirty work. Read the Gerber file given the
@@ -637,199 +964,6 @@ class Job:
       print layername
       print self.commands[layername]
 
-  def parseExcellon(self, fullname):
-    #print 'Reading data from %s ...' % fullname
-
-    fid = file(fullname, 'rt')
-    currtool = None
-    suppress_leading = True     # Suppress leading zeros by default, equivalent to 'INCH,TZ'
-
-    # We store Excellon X/Y data in ten-thousandths of an inch. If the Config
-    # option ExcellonDecimals is not 4, we must adjust the values read from the
-    # file by a divisor to convert to ten-thousandths.  This is only used in
-    # leading-zero suppression mode. In trailing-zero suppression mode, we must
-    # trailing-zero-pad all input integers to M+N digits (e.g., 6 digits for 2.4 mode)
-    # specified by the 'zeropadto' variable.
-    
-    # KHK begin: I know that this could be done with a few lines less, but in my opinion it is easier to understand 
-    # with a little bit "overhead"
-    if config.Config['measurementunits'] == 'mm':            	        # KHK "mm" (from layout.cfg file)
-        if config.Config['kicadfilesinmetricunits'] == 1:               # KHK for Kicad metric file support
-            if self.ExcellonDecimals > 0:
-               divisor = 10.0**(3 - self.ExcellonDecimals)
-               zeropadto = 3+self.ExcellonDecimals
-            else:
-               divisor = 10.0**(3 - config.Config['excellondecimals'])
-               zeropadto = 3+config.Config['excellondecimals']
-
-        else:						            # "mm" but not Kicad ... like in version 1.9.  
-            if self.ExcellonDecimals > 0:
-              divisor = 10.0**(4 - self.ExcellonDecimals)
-              zeropadto = 2+self.ExcellonDecimals
-            else:
-              divisor = 10.0**(4 - config.Config['excellondecimals'])
-              zeropadto = 2+config.Config['excellondecimals']
-    else:                                                            # KHK "inch" =  6 digits for 2.4 mode
-        if self.ExcellonDecimals > 0:
-          divisor = 10.0**(4 - self.ExcellonDecimals)
-          zeropadto = 2+self.ExcellonDecimals
-        else:
-          divisor = 10.0**(4 - config.Config['excellondecimals'])
-          zeropadto = 2+config.Config['excellondecimals'] 
-    # KHK end 
-
-    
-    # Protel takes advantage of optional X/Y components when the previous one is the same,
-    # so we have to remember them.
-    last_x = last_y = 0
-
-    # Helper function to convert X/Y strings into integers in units of ten-thousandth of an inch.
-    def xln2tenthou(L, divisor=divisor, zeropadto=zeropadto):
-      V = []
-      for s in L:
-        if not suppress_leading:
-          s = s + '0'*(zeropadto-len(s))
-        V.append(int(round(int(s)*divisor)))
-      return tuple(V)
-
-    for line in fid.xreadlines():
-      # Get rid of CR characters
-      line = string.replace(line, '\x0D', '')
-
-# add support for DipTrace
-      if line[:6]=='METRIC':
-        if (config.Config['measurementunits'] == 'inch'):
-          raise RuntimeError, "File %s units do match config file" % fullname
-      if line[:6]=='INCH':								# modified by KHK
-        if (config.Config['measurementunits'] == 'mm'):			                # modified by KHK
-          raise RuntimeError, "File %s units do match config file" % fullname		# modified by KHK
-
-      if line[:3] == 'T00': # a tidying up that we can ignore
-        continue
-# end metric/diptrace support
-
-# KHK add support for KiCad
-      if line[:3] == 'M70': # a tidying up that we can ignore
-        continue
-      if line[:3] == 'M71': # a tidying up that we can ignore
-        continue
-      if line[:6] == 'FMAT,2': # a tidying up that we can ignore
-        continue
-# KHK end support for KiCad
-
-
-      # Protel likes to embed comment lines beginning with ';'
-      if line[0]==';':
-        continue
-
-      # Check for leading/trailing zeros included ("INCH,LZ" or "INCH,TZ")
-      match = xzsup_pat.match(line)
-      if match:
-        if match.group(1)=='L':
-          # LZ --> Leading zeros INCLUDED
-          suppress_leading = False
-        else:
-          # TZ --> Trailing zeros INCLUDED
-          suppress_leading = True
-        continue
-        
-      # KHK fix for METRIC Check for leading/trailing zeros included ("METRIC,LZ" or "METRIC,TZ")
-      match = xzsup2_pat.match(line)
-      if match:
-        if match.group(1)=='L':
-          # LZ --> Leading zeros INCLUDED
-          suppress_leading = False
-        else:
-          # TZ --> Trailing zeros INCLUDED
-          suppress_leading = True
-        continue
-
-
-      # See if a tool is being defined. First try to match with tool name+size
-      match = xtdef_pat.match(line)    # xtdef_pat and xtdef2_pat expect tool name and diameter
-      if match is None:                # but xtdef_pat expects optional feed/speed between T and C
-        match = xtdef2_pat.match(line) # and xtdef_2pat expects feed/speed at the end
-      if match:
-        currtool, diam = match.groups()
-        try:
-          diam = float(diam)
-        except:
-          raise RuntimeError, "File %s has illegal tool diameter '%s'" % (fullname, diam)
-
-        # Canonicalize tool number because Protel (of course) sometimes specifies it
-        # as T01 and sometimes as T1. We canonicalize to T01.
-        currtool = 'T%02d' % int(currtool[1:])
-
-        if self.xdiam.has_key(currtool):
-          raise RuntimeError, "File %s defines tool %s more than once" % (fullname, currtool)
-        self.xdiam[currtool] = diam
-        continue
-
-      # Didn't match TxxxCyyy. It could be a tool change command 'Tdd'.
-      match = xtool_pat.match(line)
-      if match:
-        currtool = match.group(1)
-
-        # Canonicalize tool number because Protel (of course) sometimes specifies it
-        # as T01 and sometimes as T1. We canonicalize to T01.
-        currtool = 'T%02d' % int(currtool[1:])
-        if currtool == 'T00':	# added by KHK for KiCAD support
-          continue		# added by KHK for KiCAD support
-
-        # Diameter will be obtained from embedded tool definition, local tool list or if not found, the global tool list
-        try:
-          diam = self.xdiam[currtool]
-        except:
-          if self.ToolList:
-            try:
-              diam = self.ToolList[currtool]
-            except:
-              raise RuntimeError, "File %s uses tool code %s that is not defined in the job's tool list" % (fullname, currtool)
-          else:
-            try:
-              diam = config.DefaultToolList[currtool]
-            except:
-              #print config.DefaultToolList
-              raise RuntimeError, "File %s uses tool code %s that is not defined in default tool list" % (fullname, currtool)
-
-        self.xdiam[currtool] = diam
-        continue
-
-      # Plunge command?
-      match = xydraw_pat.match(line)
-      if match:
-        x, y = xln2tenthou(match.groups())
-      else:
-        match = xdraw_pat.match(line)
-        if match:
-          x = xln2tenthou(match.groups())[0]
-          y = last_y
-        else:
-          match = ydraw_pat.match(line)
-          if match:
-            y = xln2tenthou(match.groups())[0]
-            x = last_x
-          
-      if match:
-        if currtool is None:
-          raise RuntimeError, 'File %s has plunge command without previous tool selection' % fullname
-
-        try:
-          self.xcommands[currtool].append((x,y))
-        except KeyError:
-          self.xcommands[currtool] = [(x,y)]
-
-        last_x = x
-        last_y = y
-        continue
-
-      # It had better be an ignorable
-      for pat in XIgnoreList:
-        if pat.match(line):
-          break
-      else:
-        raise RuntimeError, 'File %s has uninterpretable line:\n  %s' % (fullname, line)
-
   def hasLayer(self, layername):
     return self.commands.has_key(layername)
 
@@ -874,98 +1008,6 @@ class Job:
           fid.write('%s\n' % cmd)  # The command already has a * in it (e.g., "%LPD*%")
         else:
           fid.write('%s*\n' % cmd)
-
-  def findTools(self, diameter):
-    "Find the tools, if any, with the given diameter in inches. There may be more than one!"
-    L = []
-    for tool, diam in self.xdiam.items():
-      if diam==diameter:
-        L.append(tool)
-    return L
-
-  def writeExcellon(self, fid, diameter, Xoff, Yoff):
-    "Write out the data such that the lower-left corner of this job is at the given (X,Y) position, in inches"
-    
-    # First convert given inches to 2.4 co-ordinates. Note that Gerber is 2.5 (as of GerbMerge 1.2)
-    # and our internal Excellon representation is 2.4 as of GerbMerge
-    # version 0.91. We use X,Y to calculate DX,DY in 2.4 units (i.e., with a
-    # resolution of 0.0001".
-    # add metric support (1/1000 mm vs. 1/100,000 inch)
-    if config.Config['measurementunits'] == 'inch':
-      X = int(round(Xoff/0.00001))  # First work in 2.5 format to match Gerber
-      Y = int(round(Yoff/0.00001))
-    else:
-      X = int(round(Xoff/0.001))  # First work in 5.3 format to match Gerber
-      Y = int(round(Yoff/0.001))
-
-    # Now calculate displacement for each position so that we end up at specified origin
-    DX = X - self.minx
-    DY = Y - self.miny
-
-    # Now round down to 2.4 format for inch and mm but not Kicad
-    # this scaling seems to work for either unit system
-    if config.Config['measurementunits'] == 'mm':            	    # KHK for layout.cfg file
-        if config.Config['kicadfilesinmetricunits'] == 1:            # KHK for Kicad metric file support
-           DX = int(round(DX))
-           DY = int(round(DY)) 
-        else:						            # mm but not Kicad ... like in version 1.9.  
-           DX = int(round(DX/10.0))
-           DY = int(round(DY/10.0)) 
-    else:                                                           # KHK inch
-        DX = int(round(DX/10.0))
-        DY = int(round(DY/10.0))
-
-    ltools = self.findTools(diameter)
-
-    if config.Config['excellonleadingzeros']:
-      fmtstr = 'X%06dY%06d\n'
-    else:
-      fmtstr = 'X%dY%d\n'
-
-    # Boogie
-    for ltool in ltools:
-      if self.xcommands.has_key(ltool):
-        for cmd in self.xcommands[ltool]:
-          x, y = cmd
-          fid.write(fmtstr % (x+DX, y+DY))
-
-  def writeDrillHits(self, fid, diameter, toolNum, Xoff, Yoff):
-    """Write a drill hit pattern. diameter is tool diameter in inches, while toolNum is
-    an integer index into strokes.DrillStrokeList"""
-
-    # add metric support (1/1000 mm vs. 1/100,000 inch)
-    if config.Config['measurementunits'] == 'inch':
-      # First convert given inches to 2.5 co-ordinates
-      X = int(round(Xoff/0.00001))
-      Y = int(round(Yoff/0.00001))
-    else:
-      # First convert given inches to 5.3 co-ordinates
-      X = int(round(Xoff/0.001))
-      Y = int(round(Yoff/0.001))
-
-    # Now calculate displacement for each position so that we end up at specified origin
-    DX = X - self.minx
-    DY = Y - self.miny
-
-    # Do NOT round down to 2.4 format. These drill hits are in Gerber 2.5 format, not
-    # Excellon plunge commands.
-
-    ltools = self.findTools(diameter)
-
-    for ltool in ltools:
-      if self.xcommands.has_key(ltool):
-        for cmd in self.xcommands[ltool]:
-          x, y = cmd
-          # add metric support (1/1000 mm vs. 1/100,000 inch)
-          #  makestroke.drawDrillHit(fid, 10*x+DX, 10*y+DY, toolNum)            # KHK this was the original line
-          if config.Config['measurementunits'] == 'mm':            	        # KHK from layout.cfg file
-             if config.Config['kicadfilesinmetricunits'] == 1:                  # KHK for Kicad metric file support
-	        makestroke.drawDrillHit(fid, x+DX, y+DY, toolNum) 
-             else:						                # mm but not Kicad ... like in version 1.9. 
-	        # TODO - verify metric scaling is correct??? 
-	        makestroke.drawDrillHit(fid, 10*x+DX, 10*y+DY, toolNum) 
-          else:                                                                 # KHK inch
-             makestroke.drawDrillHit(fid, 10*x+DX, 10*y+DY, toolNum)
 
   def aperturesAndMacros(self, layername):
     "Return dictionaries whose keys are all necessary aperture names and macro names for this layer"
@@ -1177,28 +1219,14 @@ class Job:
       self.trimGerberLayer(layername)
 
   def trimExcellon(self):
-    "Remove plunge commands that are outside job dimensions"
-    keys = self.xcommands.keys()
-    for toolname in keys:
-      # Remember Excellon is 2.4 format while Gerber data is 2.5 format
-      # KHK: Excellon from Kicad is in 3.3 format
-      # add metric support (1/1000 mm vs. 1/100,000 inch)
-      # the normal metric scale factor isn't working right, so we'll leave it alone!!!!?
-      
-      if config.Config['measurementunits'] == 'mm':            	          # KHK from layout.cfg file
-         if config.Config['kicadfilesinmetricunits'] == 1:                # KHK for Kicad metric file support
-	    validList = [(x,y) for x,y in self.xcommands[toolname] if self.inBorders(x,y)]
-         else:						                  # KHK mm but not Kicad ... like in version 1.9.  
-	    validList = [(x,y) for x,y in self.xcommands[toolname] if self.inBorders(0.1*x,0.1*y)]
-      else:                                                               # KHK inch
-         validList = [(x,y) for x,y in self.xcommands[toolname] if self.inBorders(10*x,10*y)]
-      
- 
-      if validList:
-        self.xcommands[toolname] = validList
-      else:
-        del self.xcommands[toolname]
-        del self.xdiam[toolname]
+    for _, layer in self.drill_layers.iteritems():
+      layer.trimExcellon()
+
+  def writeExcellon(self, fid, layername, diameter, x, y):
+    self.drill_layers[layername].writeExcellon(fid, diameter, x, y)
+
+  def writeDrillHits(self, fid, layername, diameter, toolNum, x, y):
+    self.drill_layers[layername].writeDrillHits(fid, diameter, toolNum, x, y)
 
 # This class encapsulates a Job object, providing absolute
 # positioning information.
@@ -1218,13 +1246,13 @@ class JobLayout:
   def aperturesAndMacros(self, layername):
     return self.job.aperturesAndMacros(layername)
 
-  def writeExcellon(self, fid, diameter):
+  def writeExcellon(self, fid, layername, diameter):
     assert self.x is not None
-    self.job.writeExcellon(fid, diameter, self.x, self.y)
+    self.job.writeExcellon(fid, layername, diameter, self.x, self.y)
 
-  def writeDrillHits(self, fid, diameter, toolNum):
+  def writeDrillHits(self, fid, layername, diameter, toolNum):
     assert self.x is not None
-    self.job.writeDrillHits(fid, diameter, toolNum, self.x, self.y)
+    self.job.writeDrillHits(fid, layername, diameter, toolNum, self.x, self.y)
 
   def writeCutLines(self, fid, drawing_code, X1, Y1, X2, Y2):
     """Draw a board outline using the given aperture code"""
@@ -1364,9 +1392,6 @@ def rotateJob(job, degrees = 90, firstpass = True):
   RevGAT = config.buildRevDict(GAT)   # RevGAT[hash] = aperturename
   RevGAMT = config.buildRevDict(GAMT) # RevGAMT[hash] = aperturemacroname
 
-  # Keep list of tool diameters and default tool list
-  J.xdiam = job.xdiam
-  J.ToolList = job.ToolList
   J.Repeat = job.Repeat
 
   # D-code translation table is the same, except we have to rotate
@@ -1475,32 +1500,41 @@ def rotateJob(job, degrees = 90, firstpass = True):
 
   # Finally, rotate drills. Offset is in hundred-thousandths (2.5) while Excellon
   # data is in 2.4 format.
-  for tool in job.xcommands.keys():
-    J.xcommands[tool] = []
 
-    for x,y in job.xcommands[tool]:
-    # add metric support (1/1000 mm vs. 1/100,000 inch)
-        if config.Config['measurementunits'] == 'mm':            	    # KHK for layout.cfg file
-           if config.Config['kicadfilesinmetricunits'] == 1:                # KHK for Kicad metric file support
-                  newx = -(y - job.miny) + job.minx + offset
-                  newy =  (x - job.minx) + job.miny
+  for layername, old_drilljob in job.drill_layers.iteritems():
+    drilljob = ExcellonJob(J)
+    J.drill_layers[layername] = drilljob
 
-                  newx = int(round(newx))
-                  newy = int(round(newy))
-           else:						            # mm but not Kicad ... like in version 1.9.  
-                  newx = -(10*y - job.miny) + job.minx + offset
-                  newy =  (10*x - job.minx) + job.miny
+    # Keep list of tool diameters and default tool list
+    drilljob.xdiam = old_drilljob.xdiam
+    drilljob.ToolList = old_drilljob.ToolList
 
-                  newx = int(round(newx/10.0))
-                  newy = int(round(newy/10.0))	
-        else:                                                               # KHK inch
-            newx = -(10*y - job.miny) + job.minx + offset
-            newy =  (10*x - job.minx) + job.miny
+    for tool in old_drilljob.xcommands.keys():
+      drilljob.xcommands[tool] = []
 
-            newx = int(round(newx/10.0))
-            newy = int(round(newy/10.0))  
+      for x,y in old_drilljob.xcommands[tool]:
+      # add metric support (1/1000 mm vs. 1/100,000 inch)
+          if config.Config['measurementunits'] == 'mm':            	    # KHK for layout.cfg file
+             if config.Config['kicadfilesinmetricunits'] == 1:                # KHK for Kicad metric file support
+                    newx = -(y - job.miny) + job.minx + offset
+                    newy =  (x - job.minx) + job.miny
 
-        J.xcommands[tool].append((newx,newy))
+                    newx = int(round(newx))
+                    newy = int(round(newy))
+             else:						            # mm but not Kicad ... like in version 1.9.  
+                    newx = -(10*y - job.miny) + job.minx + offset
+                    newy =  (10*x - job.minx) + job.miny
+
+                    newx = int(round(newx/10.0))
+                    newy = int(round(newy/10.0))	
+          else:                                                               # KHK inch
+              newx = -(10*y - job.miny) + job.minx + offset
+              newy =  (10*x - job.minx) + job.miny
+
+              newx = int(round(newx/10.0))
+              newy = int(round(newy/10.0))  
+
+          drilljob.xcommands[tool].append((newx,newy))
 
   # Rotate some more if required
   degrees -= 90

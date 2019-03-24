@@ -336,7 +336,8 @@ def parseConfigFile(fname, Config=Config, Jobs=Jobs):
   if CP.has_section('MergeOutputFiles'):
     for opt in CP.options('MergeOutputFiles'):
       # Each option is a layer name and the output file for this name
-      if opt[0]=='*' or opt in ('boardoutline', 'drills', 'placement', 'toollist'):
+      if opt[0]=='*' or opt in ('boardoutline', 'placement', 'toollist') \
+          or opt.startswith('drills'):
         MergeOutputFiles[opt] = CP.get('MergeOutputFiles', opt)
 
   # Now, we go through all jobs and collect Gerber layers
@@ -430,8 +431,8 @@ def parseConfigFile(fname, Config=Config, Jobs=Jobs):
         J.parseGerber(fname, layername, updateExtents=1)
       elif layername[0]=='*':
         J.parseGerber(fname, layername, updateExtents=0)
-      elif layername=='drills':
-        J.parseExcellon(fname)
+      elif layername.startswith('drills'):
+        J.parseExcellon(fname, layername)
 
     # Emit warnings if some layers are missing
     LL = LayerList.copy()

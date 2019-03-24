@@ -686,87 +686,64 @@ def merge(opts, args, gui = None):
     writeGerberFooter(fid)
     fid.close()
 
-  # Get a list of all tools used by merging keys from each job's dictionary
-  # of tools.
-  if 0:
-    Tools = {}
-    for job in config.Jobs.values():
-      for key in job.xcommands.keys():
-        Tools[key] = 1
+  drill_layernames = list(set([name for job in config.Jobs.values() \
+                                for name in job.drill_layers.keys()]))
 
-    Tools = Tools.keys()
-    Tools.sort()
-  else:
+  for layername in drill_layernames:
+    # Get a list of all tools used by merging keys from each job's dictionary
+    # of tools.
+
+    drill_jobs = [job.drill_layers[layername] for job in config.Jobs.values()]
+
     toolNum = 0
 
+    ToolRMap = dict(config.GlobalToolRMap)
+
     # First construct global mapping of diameters to tool numbers
-    for job in config.Jobs.values():
+    for job in drill_jobs:
       for tool,diam in job.xdiam.items():
-        if config.GlobalToolRMap.has_key(diam):
+        if ToolRMap.has_key(diam):
           continue
 
         toolNum += 1
-        config.GlobalToolRMap[diam] = "T%02d" % toolNum
+        ToolRMap[diam] = "T%02d" % toolNum
 
     # Cluster similar tool sizes to reduce number of drills
     if config.Config['drillclustertolerance'] > 0:
-      config.GlobalToolRMap = drillcluster.cluster( config.GlobalToolRMap, config.Config['drillclustertolerance'] )
-      drillcluster.remap( Place.jobs, config.GlobalToolRMap.items() )
+      ToolRMap = drillcluster.cluster( ToolRMap, config.Config['drillclustertolerance'] )
+      drillcluster.remap( drill_jobs, ToolRMap.items() )
 
+    ToolMap = dict()
     # Now construct mapping of tool numbers to diameters
-    for diam,tool in config.GlobalToolRMap.items():
-      config.GlobalToolMap[tool] = diam
+    for diam,tool in ToolRMap.items():
+      ToolMap[tool] = diam
 
     # Tools is just a list of tool names
-    Tools = config.GlobalToolMap.keys()
+    Tools = ToolMap.keys()
     Tools.sort()   
-
-  fullname = config.Config['fabricationdrawingfile']
-  if fullname and fullname.lower() != 'none':
-    if len(Tools) > strokes.MaxNumDrillTools:
-      raise RuntimeError, "Only %d different tool sizes supported for fabrication drawing." % strokes.MaxNumDrillTools
-
+    
+    # Finally, print out the Excellon
+    try:
+      fullname = config.MergeOutputFiles[layername]
+    except KeyError:
+      fullname = 'merged.%s.xln' % (layername,)
     OutputFiles.append(fullname)
     #print 'Writing %s ...' % fullname
     fid = file(fullname, 'wt')
-    writeGerberHeader(fid)
-    writeApertures(fid, {drawing_code1: None})
-    fid.write('%s*\n' % drawing_code1)    # Choose drawing aperture
 
-    fabdrawing.writeFabDrawing(fid, Place, Tools, OriginX, OriginY, MaxXExtent, MaxYExtent)
+    writeExcellonHeader(fid)
 
-    writeGerberFooter(fid)
-    fid.close()
+    # Ensure each one of our tools is represented in the tool list specified
+    # by the user.
+    for tool, size in ToolMap.items():
+      writeExcellonTool(fid, tool, size)
+
+      for job in Place.jobs:
+          job.writeExcellon(fid, layername, size)
     
-  # Finally, print out the Excellon
-  try:
-    fullname = config.MergeOutputFiles['drills']
-  except KeyError:
-    fullname = 'merged.drills.xln'
-  OutputFiles.append(fullname)
-  #print 'Writing %s ...' % fullname
-  fid = file(fullname, 'wt')
+    writeExcellonFooter(fid)
+    fid.close()
 
-  writeExcellonHeader(fid)
-
-  # Ensure each one of our tools is represented in the tool list specified
-  # by the user.
-  for tool in Tools:
-    try:
-      size = config.GlobalToolMap[tool]
-    except:
-      raise RuntimeError, "INTERNAL ERROR: Tool code %s not found in global tool map" % tool
-      
-    writeExcellonTool(fid, tool, size)
-
-    #for row in Layout:
-    #  row.writeExcellon(fid, size)
-    for job in Place.jobs:
-        job.writeExcellon(fid, size)
-  
-  writeExcellonFooter(fid)
-  fid.close()
-  
   updateGUI("Closing files...")
 
   # Compute stats
@@ -778,26 +755,27 @@ def merge(opts, args, gui = None):
     
   totalarea = ((MaxXExtent-OriginX)*(MaxYExtent-OriginY))
 
-  ToolStats = {}
-  drillhits = 0
-  for tool in Tools:
-    ToolStats[tool]=0
-    #for row in Layout:
-    #  hits = row.drillhits(config.GlobalToolMap[tool])
-    #  ToolStats[tool] += hits
-    #  drillhits += hits
-    for job in Place.jobs:
-      hits = job.drillhits(config.GlobalToolMap[tool])
-      ToolStats[tool] += hits
-      drillhits += hits
+  if False:
+    ToolStats = {}
+    drillhits = 0
+    for tool in Tools:
+      ToolStats[tool]=0
+      #for row in Layout:
+      #  hits = row.drillhits(config.GlobalToolMap[tool])
+      #  ToolStats[tool] += hits
+      #  drillhits += hits
+      for job in Place.jobs:
+        hits = job.drillhits(config.GlobalToolMap[tool])
+        ToolStats[tool] += hits
+        drillhits += hits
 
-  try:
-    fullname = config.MergeOutputFiles['toollist']
-  except KeyError:
-    fullname = 'merged.toollist.drl'
-  OutputFiles.append(fullname)
-  #print 'Writing %s ...' % fullname
-  fid = file(fullname, 'wt')
+    try:
+      fullname = config.MergeOutputFiles['toollist']
+    except KeyError:
+      fullname = 'merged.toollist.drl'
+    OutputFiles.append(fullname)
+    #print 'Writing %s ...' % fullname
+    fid = file(fullname, 'wt')
 
   print '-'*50
   # add metric support (1/1000 mm vs. 1/100,000 inch)
@@ -809,29 +787,33 @@ def merge(opts, args, gui = None):
     print '     Job Area : %.0f mm2' % totalarea
 
   print '   Area Usage : %.1f%%' % (jobarea/totalarea*100)
-  print '   Drill hits : %d' % drillhits
-  if config.Config['measurementunits'] == 'inch':
-    print 'Drill density : %.1f hits/sq.in.' % (drillhits/totalarea)
-  else:
-    print 'Drill density : %.2f hits/cm2' % (100*drillhits/totalarea)
 
-  print '\nTool List:'
-  smallestDrill = 999.9
-  for tool in Tools:
-    if ToolStats[tool]:
-      if config.Config['measurementunits'] == 'inch':
-        fid.write('%s %.4fin\n' % (tool, config.GlobalToolMap[tool]))
-        print '  %s %.4f" %5d hits' % (tool, config.GlobalToolMap[tool], ToolStats[tool])
-      else:
-        fid.write('%s %.4fmm\n' % (tool, config.GlobalToolMap[tool]))
-        print '  %s %.4fmm %5d hits' % (tool, config.GlobalToolMap[tool], ToolStats[tool])
-      smallestDrill = min(smallestDrill, config.GlobalToolMap[tool])
+  if False:
+    print '   Drill hits : %d' % drillhits
+    if config.Config['measurementunits'] == 'inch':
+      print 'Drill density : %.1f hits/sq.in.' % (drillhits/totalarea)
+    else:
+      print 'Drill density : %.2f hits/cm2' % (100*drillhits/totalarea)
+
+    print '\nTool List:'
+    smallestDrill = 999.9
+    for tool in Tools:
+      if ToolStats[tool]:
+        if config.Config['measurementunits'] == 'inch':
+          fid.write('%s %.4fin\n' % (tool, config.GlobalToolMap[tool]))
+          print '  %s %.4f" %5d hits' % (tool, config.GlobalToolMap[tool], ToolStats[tool])
+        else:
+          fid.write('%s %.4fmm\n' % (tool, config.GlobalToolMap[tool]))
+          print '  %s %.4fmm %5d hits' % (tool, config.GlobalToolMap[tool], ToolStats[tool])
+        smallestDrill = min(smallestDrill, config.GlobalToolMap[tool])
 
   fid.close()
-  if config.Config['measurementunits'] == 'inch':
-    print "Smallest Tool: %.4fin" % smallestDrill
-  else:
-    print "Smallest Tool: %.4fmm" % smallestDrill
+
+  if False:
+    if config.Config['measurementunits'] == 'inch':
+      print "Smallest Tool: %.4fin" % smallestDrill
+    else:
+      print "Smallest Tool: %.4fmm" % smallestDrill
 
   print
   print 'Output Files :'

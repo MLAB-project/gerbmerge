@@ -108,8 +108,6 @@ def remap(jobs, globalToolMap, debug = _DEBUG):
     debug_print("Remapping tools and commands ...", True)
     
     for job in jobs:
-        job = job.job ##access job inside job layout
-        debug_print("\n  Job name: " + job.name)
         debug_print("\n  Original job tools:")
         debug_print( str(job.xdiam) )
         debug_print("\n  Original commands:")
