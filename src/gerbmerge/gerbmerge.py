@@ -538,6 +538,8 @@ def merge(opts, args, gui = None):
 
     try:
       fullname = config.MergeOutputFiles[layername]
+      if not fullname:
+        continue
     except KeyError:
       fullname = 'merged.%s.ger' % lname
     OutputFiles.append(fullname)
