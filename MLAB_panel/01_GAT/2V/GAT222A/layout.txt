@@ -1,0 +1,10 @@
+Row {
+	Col {
+		SPACEDOS02A_PCB01A
+		}
+        
+    Col {
+		SPACEDOS02A_PCB01A
+		}
+
+}
