@@ -65,6 +65,7 @@ Config = {
    'fiducialpoints': None,           # List of X,Y co-ordinates at which to draw fiducials
    'fiducialcopperdiameter': 0.08,   # Diameter of copper part of fiducial
    'fiducialmaskdiameter': 0.32,     # Diameter of fiducial soldermask opening
+   'notrimming': 0                   # Set to 1 to disable both Excellon and Gerber trimming
    }
 
 # This dictionary is indexed by lowercase layer name and has as values a file
@@ -309,7 +310,12 @@ def parseConfigFile(fname, Config=Config, Jobs=Jobs):
   if Config['outlinelayers']:
     Config['outlinelayers'] = parseStringList(Config['outlinelayers'])
   # KHK patch end: added support for Seeed Studio to generate an outline for all panelized gerber files
-    
+
+  if Config['notrimming']:
+    global TrimGerber, TrimExcellon
+    TrimGerber = 0
+    TrimExcellon = 0
+
 # setup default x & y spacing, taking into account metric units
 #    if (xspacing == 0):
 #      if (Config['measurementunits'] == 'inch'):
