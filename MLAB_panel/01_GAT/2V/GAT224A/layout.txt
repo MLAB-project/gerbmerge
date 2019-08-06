@@ -1,0 +1,12 @@
+Row {
+	Col {
+		PCRD06A
+        PCRD06A
+        }
+        
+    Col {
+		PCRD06A
+        PCRD06A
+		}
+
+}
