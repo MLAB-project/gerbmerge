@@ -1,0 +1,20 @@
+Row {
+	  
+     Col {
+		LT3483 Rotate90
+        LT3483 Rotate90
+        LT3483 Rotate90
+        LT3483 Rotate90
+        LT3483 Rotate90
+		}  
+             
+        
+    Col {
+		TPS65133_2 Rotate90
+        TPS65133_2 Rotate90
+        TPS65133_2 Rotate90
+        TPS65133_2 Rotate90
+        TPS65133_2 Rotate90
+		}
+
+}
