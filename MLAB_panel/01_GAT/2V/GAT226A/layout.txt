@@ -4,11 +4,8 @@ Row {
     Col {
 		ISM02A
         ISM02A
-        }
-        
-     Col {
-		PROGLOG01A
         PROGLOG01A
-         }     
-
+        PROGLOG01A
+        }
+  
 }
