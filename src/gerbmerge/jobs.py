@@ -647,6 +647,8 @@ class Job:
     #    G37 -- Turn off polygon area fill
     last_gmode = 1  # G01 by default, linear interpolation
 
+    in_region_statement = False
+
     # We want to know whether to do signed (G75) or unsigned (G74) I/J offsets. These
     # modes are independent of G01/G02/G03, e.g., Protel will issue multiple G03/G01
     # codes all in G75 mode.
@@ -806,6 +808,11 @@ class Job:
             if gcode in [1, 36, 37]:
               last_gmode = gcode
 
+            if gcode == 36:
+              in_region_statement = True
+            if gcode == 37:
+              in_region_statement = False
+
             # Remember last G74/G75 code so we know whether to do signed or unsigned I/J
             # offsets.
             if gcode==74:
@@ -838,11 +845,11 @@ class Job:
           # to ignore D03 because it implies a flash. Protel very inefficiently issues a D02
           # move to a location without drawing, then a single-line D03 to flash. However, a D02
           # terminates a polygon in G36 mode, so keep D02's in this case.
-          if currtool=='D01' or (currtool=='D02' and (last_gmode != 36)):
+          if currtool=='D01' or (currtool=='D02' and not in_region_statement):
             sub_line = sub_line[match.end():]
             continue
 
-          if (currtool == 'D03') or (currtool=='D02' and (last_gmode == 36)):
+          if (currtool == 'D03') or (currtool=='D02' and in_region_statement):
             self.commands[layername].append(currtool)
             sub_line = sub_line[match.end():]
             continue
@@ -905,7 +912,7 @@ class Job:
             # It's OK if this is an exposure-off movement command (specified with D02).
             # It's also OK if we're in the middle of a G36 polygon fill as we're only defining
             # the polygon extents.
-            if (d != 2) and (last_gmode != 36):
+            if (d != 2) and not in_region_statement:
               raise RuntimeError, 'File %s has draw command %s with no aperture chosen' % (fullname, sub_line)
 
           # Save last_x/y BEFORE scaling to 2.5 format else subsequent single-ordinate
