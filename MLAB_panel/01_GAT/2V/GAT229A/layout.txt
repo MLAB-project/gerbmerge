@@ -1,0 +1,14 @@
+Row {
+	Col {
+		GPS02A
+        GPS02A
+        GPS02A
+        }
+        
+    Col {
+		GPS02A
+        GPS02A
+        GPS02A
+		}
+
+}
