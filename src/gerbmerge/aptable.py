@@ -26,12 +26,12 @@ import util
 # GerbMerge doesn't handle these yet...only fixed macros (no parameters) are
 # currently supported.
 Apertures = (
-   ('Rectangle', re.compile(r'^%AD(D\d+)R,([^X]+)X([^*]+)\*%$'), '%%AD%sR,%.5fX%.5f*%%\n'),
-   ('Circle',    re.compile(r'^%AD(D\d+)C,([^*]+)\*%$'),         '%%AD%sC,%.5f*%%\n'),
-   ('Oval',      re.compile(r'^%AD(D\d+)O,([^X]+)X([^*]+)\*%$'), '%%AD%sO,%.5fX%.5f*%%\n'),
-   ('Octagon',   re.compile(r'^%AD(D\d+)OC8,([^*]+)\*%$'),       '%%AD%sOC8,%.5f*%%\n'),     # Specific to Eagle
-   ('Macro',     re.compile(r'^%AD(D\d+)([^*]+)\*%$'),           '%%AD%s%s*%%\n')
-  )
+  ('Rectangle', re.compile(r'^%AD(D\d+)R,([^X]+)X([^*]+)\*%$'),     '%%AD%sR,%.5fX%.5f*%%\n'),
+  ('Circle',    re.compile(r'^%AD(D\d+)C,([^*]+)\*%$'),             '%%AD%sC,%.5f*%%\n'),
+  ('Oval',      re.compile(r'^%AD(D\d+)O,([^X]+)X([^*]+)\*%$'),     '%%AD%sO,%.5fX%.5f*%%\n'),
+  ('Octagon',   re.compile(r'^%AD(D\d+)OC8,([^*]+)\*%$'),           '%%AD%sOC8,%.5f*%%\n'),     # Specific to Eagle
+  ('Macro',     re.compile(r'^%AD(D\d+)([^*,]+)((?:,[^*]+)?)\*%$'), '%%AD%s%s%s*%%\n')
+)
 
 # This loop defines names in this module like 'Rectangle',
 # which are element 0 of the Apertures list above. So code
@@ -50,7 +50,7 @@ class Aperture:
     self.dimx = dimx      # Macro name for Macro apertures
     self.dimy = dimy      # None for Macro apertures
 
-    if self.apname in ('Circle', 'Octagon', 'Macro'):
+    if self.apname in ('Circle', 'Octagon'):
       assert (dimy is None)
         
   def isRectangle(self):
@@ -138,13 +138,12 @@ class Aperture:
     #      return ('%s: %s (%.4f)' % (self.code, self.apname, self.dimx))
 
   def hash(self):
+    if self.apname in ('Macro',):
+      return ('%s (%s,%s)' % (self.apname, self.dimx, self.dimy))
     if self.dimy:
       return ('%s (%.5f x %.5f)' % (self.apname, self.dimx, self.dimy))
     else:
-      if self.apname in ('Macro',):
-        return ('%s (%s)' % (self.apname, self.dimx))
-      else:
-        return ('%s (%.5f)' % (self.apname, self.dimx))
+      return ('%s (%.5f)' % (self.apname, self.dimx))
 
   def writeDef(self, fid):
     if self.dimy:
@@ -161,7 +160,7 @@ def parseAperture(s, knownMacroNames):
     match = ap[1].match(s)
     if match:
       dimy = None
-      if ap[0] in ('Circle', 'Octagon', 'Macro'):
+      if ap[0] in ('Circle', 'Octagon'):
         code, dimx = match.groups()
       else:
         code, dimx, dimy = match.groups()

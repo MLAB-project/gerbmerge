@@ -83,7 +83,12 @@ IgnoreList = ( \
   re.compile(r'^%MOMM\*%'),	 # KHK just because of symmetry with MOIN one line above
   re.compile(r'^%ASAXBY\*%'),
   re.compile(r'^%AD\*%'),        # GerbTool empty aperture definition
-  re.compile(r'^%LN.*\*%')       # Layer name
+  re.compile(r'^%LN.*\*%'),      # Layer name
+
+  re.compile(r'^%TF.*%$'), # safe-to-ignore commands from Gerber X2
+  re.compile(r'^%TA.*%$'),
+  re.compile(r'^%TD.*%$'),
+  re.compile(r'^%TO.*%$')
   )
 
 # Patterns for Excellon interpretation

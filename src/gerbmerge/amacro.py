@@ -35,7 +35,7 @@ _macro_pat = re.compile(r'^%AM([^*]+)\*$')
 # (int, float, float, float).
 PrimitiveParmTypes = (
    None,                                            # Code 0  -- undefined
-  (int, float, float, float),                       # Code 1  -- circle
+  (int, float, float, float, float),                # Code 1  -- circle
   (int, float, float, float, float, float, float),  # Code 2  -- line (vector)
    None,                                            # Code 3  -- end-of-file for .DES files
   (int, int, float, float, float, float, float),    # Code 4  -- outline...takes any number of additional floats
@@ -54,7 +54,7 @@ PrimitiveParmTypes = (
    None,                                            # Code 17 -- undefined
    None,                                            # Code 18 -- undefined
    None,                                            # Code 19 -- undefined
-  (int, float, float, float, float, float),         # Code 20 -- line (vector)...alias for code 2
+  (int, float, float, float, float, float, float),  # Code 20 -- line (vector)...alias for code 2
   (int, float, float, float, float, float),         # Code 21 -- line (center)
   (int, float, float, float, float, float)          # Code 22 -- line (lower-left)
 )  
@@ -124,7 +124,7 @@ class ApertureMacroPrimitive:
       except:
         raise RuntimeError, 'Outline macro primitive has non-integer number of points'
 
-      if len(fields) != (3+2*N):
+      if len(fields) != (5+2*N):
         raise RuntimeError, 'Outline macro primitive has %d fields...expecting %d fields' % (len(fields), 3+2*N)
     else:
       if len(fields) != len(valids):
@@ -133,10 +133,11 @@ class ApertureMacroPrimitive:
     # Convert each parameter on the input line to an entry in the self.parms
     # list, using either int() or float() conversion.
     for parmix in range(len(fields)):
-      try:
-        converter = valids[parmix]
-      except:
-        converter = float     # To handle variable number of points in Outline type
+      #try:
+      #  converter = valids[parmix]
+      #except:
+      #  converter = float     # To handle variable number of points in Outline type
+      converter = lambda x: x
 
       try:
         self.parms.append(converter(fields[parmix]))
@@ -164,6 +165,8 @@ class ApertureMacroPrimitive:
       raise
 
   def rotate(self):
+    raise NotImplementedError()
+
     if self.code == 1:      # Circle: nothing to do
       pass
     elif self.code in (2,20): # Line (vector): fields (2,3) and (4,5) must be rotated, no need to
@@ -198,12 +201,13 @@ class ApertureMacroPrimitive:
     for parmix in range(len(self.parms)):
       valids = PrimitiveParmTypes[self.code]
 
-      format = ',%f'
-      try:
-        if valids[parmix] is int:
-          format = ',%d'
-      except:
-        pass    # '%f' is OK for Outline extra points
+      #format = ',%f'
+      #try:
+      #  if valids[parmix] is int:
+      #    format = ',%d'
+      #except:
+      #  pass    # '%f' is OK for Outline extra points
+      format = ',%s'
         
       s += format % self.parms[parmix]
 
@@ -264,10 +268,17 @@ def parseApertureMacro(s, fid):
       if line[0]=='%':
         return M
 
+      line = line.rstrip()
+
+      if line.startswith("0 "):
+        continue # it's a comment
+
       P = ApertureMacroPrimitive()
       P.setFromLine(line)
-
       M.add(P)
+
+      if line.endswith("%"):
+        return M
     else:
       raise RuntimeError, "Premature end-of-file while parsing aperture macro"
   else:
