@@ -274,7 +274,7 @@ def parseApertureMacro(s, fid):
         continue # it's a comment
 
       P = ApertureMacroPrimitive()
-      P.setFromLine(line)
+      P.setFromLine(line.rstrip("%"))
       M.add(P)
 
       if line.endswith("%"):
