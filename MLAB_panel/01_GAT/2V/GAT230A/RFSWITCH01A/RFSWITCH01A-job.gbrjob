@@ -3,9 +3,9 @@
     "GenerationSoftware": {
       "Vendor": "KiCad",
       "Application": "Pcbnew",
-      "Version": "(5.99.0-6526-g442f40fa66)"
+      "Version": "(5.99.0-6591-gee6c8b60ac)"
     },
-    "CreationDate": "2020-10-31T18:39:34+01:00"
+    "CreationDate": "2020-11-05T14:00:24+01:00"
   },
   "GeneralSpecs": {
     "ProjectId": {
@@ -27,7 +27,7 @@
       "PadToPad": 0.2,
       "PadToTrack": 0.2,
       "TrackToTrack": 0.2,
-      "MinLineWidth": 0.25,
+      "MinLineWidth": 0.4,
       "TrackToRegion": 0.2,
       "RegionToRegion": 0.2
     }
@@ -44,23 +44,8 @@
       "FilePolarity": "Positive"
     },
     {
-      "Path": "RFSWITCH01A-F_Paste.gbr",
-      "FileFunction": "SolderPaste,Top",
-      "FilePolarity": "Positive"
-    },
-    {
-      "Path": "RFSWITCH01A-B_Paste.gbr",
-      "FileFunction": "SolderPaste,Bot",
-      "FilePolarity": "Positive"
-    },
-    {
       "Path": "RFSWITCH01A-F_Silkscreen.gbr",
       "FileFunction": "Legend,Top",
-      "FilePolarity": "Positive"
-    },
-    {
-      "Path": "RFSWITCH01A-B_Silkscreen.gbr",
-      "FileFunction": "Legend,Bot",
       "FilePolarity": "Positive"
     },
     {
