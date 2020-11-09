@@ -165,35 +165,28 @@ def writeApertures(fid, usedDict):
       config.GAT[key].writeDef(fid)
 
 def writeGerberFooter(fid):
-  fid.write('M02*\n')
+  fid.write('M00\n')
 
 def writeExcellonHeader(fid):
-  if config.Config['measurementunits'] == 'mm':            	    # KHK for layout.cfg file
-    if config.Config['kicadfilesinmetricunits'] == 1:                # KHK for Kicad metric file support
-	fid.write( \
-"""M48
-METRIC,000.000             
-""")
-        fid.write('%\n')	 
-    else:						            # mm but not Kicad ... like in version 1.9.  
-      fid.write( \
-"""M48
-METRIC,0000.00             
-""")
-      fid.write('%\n')
-  else:
-    fid.write( \
-"""M48
-INCH,TZ             
-""")
-    fid.write('%\n')
+  # povik, 2020-11-09: HACK, print the same header kicad prints
+  fid.write("M48\nFMAT,2\nMETRIC,TZ\n")
 
-
-def writeExcellonFooter(fid):
-  fid.write('M30\n')
+def writeExcellonHeaderDone(fid):
+  # povik, 2020-11-09: HACK, print the same header kicad prints
+  fid.write('%\nG90\n')
 
 def writeExcellonTool(fid, tool, size):
   fid.write('%sC%f\n' % (tool, size))
+
+def writeExcellonToolSelect(fid, tool):
+  fid.write('%s\n' % (tool))
+
+def writeExcellonDrillMode(fid):
+  fid.write('G05\n')
+
+def writeExcellonFooter(fid):
+  fid.write('T00\nM30\n')
+
 
 def writeFiducials(fid, drawcode, OriginX, OriginY, MaxXExtent, MaxYExtent):
   """Place fiducials at arbitrary points. The FiducialPoints list in the config specifies
@@ -357,6 +350,14 @@ def tile_jobs(Jobs):
       raise RuntimeError, 'Panel size %.2fmmx%.2fmm is too small to hold jobs' % (PX,PY)
 
   return tile
+
+class ProbeWriter:
+  def __init__(self):
+    self._poked = False
+  def write(self, data):
+    self._poked = True
+  def poked(self):
+    return self._poked
 
 def merge(opts, args, gui = None):
   writeGerberHeader = writeGerberHeader22degrees
@@ -697,7 +698,7 @@ def merge(opts, args, gui = None):
 
     drill_jobs = [job.drill_layers[layername] for job in config.Jobs.values()]
 
-    toolNum = 0
+    toolNum = 1
 
     ToolRMap = dict(config.GlobalToolRMap)
 
@@ -722,7 +723,7 @@ def merge(opts, args, gui = None):
 
     # Tools is just a list of tool names
     Tools = ToolMap.keys()
-    Tools.sort()   
+    Tools.sort()
     
     # Finally, print out the Excellon
     try:
@@ -733,17 +734,67 @@ def merge(opts, args, gui = None):
     #print 'Writing %s ...' % fullname
     fid = file(fullname, 'wt')
 
+    try:
+      millfn = config.MergeOutputFiles[layername + "mill"]
+      OutputFiles.append(millfn)
+      millfid = open(millfn, 'wt')
+    except KeyError:
+      millfid = None
+
+    # I know this is unreadable. But it works and is ready now.
+
     writeExcellonHeader(fid)
+    if millfid:
+      writeExcellonHeader(millfid)
 
-    # Ensure each one of our tools is represented in the tool list specified
-    # by the user.
     for tool, size in ToolMap.items():
-      writeExcellonTool(fid, tool, size)
-
+      w = ProbeWriter()
       for job in Place.jobs:
+        job.writeExcellon(w, layername, size)
+      toolDrills = w.poked()
+
+      w = ProbeWriter()
+      for job in Place.jobs:
+        job.writeExcellonRout(w, layername, size)
+      toolMills = w.poked()
+
+      if toolDrills or (toolMills and not millfid):
+        writeExcellonTool(fid, tool, size)
+      if toolMills and millfid:
+        writeExcellonTool(millfid, tool, size)
+
+    writeExcellonHeaderDone(fid)
+    if millfid:
+      writeExcellonHeaderDone(millfid)
+
+    for tool, size in ToolMap.items():
+      w = ProbeWriter()
+      for job in Place.jobs:
+        job.writeExcellon(w, layername, size)
+      toolDrills = w.poked()
+
+      w = ProbeWriter()
+      for job in Place.jobs:
+        job.writeExcellonRout(w, layername, size)
+      toolMills = w.poked()
+
+      if toolDrills or (toolMills and not millfid):
+        writeExcellonToolSelect(fid, tool)
+      if toolMills and millfid:
+        writeExcellonToolSelect(millfid, tool)
+
+      if toolMills:
+        _fid = millfid or fid
+        for job in Place.jobs:
+          job.writeExcellonRout(_fid, layername, size)
+      if toolDrills:
+        writeExcellonDrillMode(fid)
+        for job in Place.jobs:
           job.writeExcellon(fid, layername, size)
-    
+
     writeExcellonFooter(fid)
+    if millfid:
+      writeExcellonFooter(millfid)
     fid.close()
 
   updateGUI("Closing files...")

@@ -103,6 +103,8 @@ xtdef2_pat = re.compile(r'^(T\d+)C([0-9.]+)(?:F\d+)?(?:S\d+)?$') # Tool+diameter
 xzsup_pat = re.compile(r'^INCH,([LT])Z$')      # Leading/trailing zeros INCLUDED
 xzsup2_pat = re.compile(r'^METRIC,([LT])Z$')   # KHK fix for METRIC, Leading/trailing zeros INCLUDED
 
+xmove_pat = re.compile(r'^(G0[01])X([+-]?\d+)Y([+-]?\d+)$')
+
 XIgnoreList = ( \
   re.compile(r'^%$'),
   re.compile(r'^M30$'),   # End of job
@@ -328,6 +330,24 @@ class ExcellonJob:
         last_y = y
         continue
 
+      match = xmove_pat.match(line)
+      if match:
+        g = match.groups()[0]
+        x, y = xln2tenthou(match.groups()[1:])
+        try:
+          self.xcommands[currtool].append((x,y,g))
+        except KeyError:
+          self.xcommands[currtool] = [(x,y,g)]
+        continue
+
+      if line[:3] in ('M15', 'M16'):
+        g = line[:3]
+        try:
+          self.xcommands[currtool].append((0,0,g))
+        except KeyError:
+          self.xcommands[currtool] = [(0,0,g)]
+        continue
+
       # It had better be an ignorable
       for pat in XIgnoreList:
         if pat.match(line):
@@ -419,8 +439,52 @@ class ExcellonJob:
     for ltool in ltools:
       if self.xcommands.has_key(ltool):
         for cmd in self.xcommands[ltool]:
-          x, y = cmd
-          fid.write(fmtstr % (x+DX, y+DY))
+          if len(cmd) == 2:
+            x, y = cmd
+            fid.write(fmtstr % (x+DX, y+DY))
+
+  def writeExcellonRout(self, fid, diameter, Xoff, Yoff):
+    if config.Config['measurementunits'] == 'inch':
+      X = int(round(Xoff/0.00001))  # First work in 2.5 format to match Gerber
+      Y = int(round(Yoff/0.00001))
+    else:
+      X = int(round(Xoff/0.001))  # First work in 5.3 format to match Gerber
+      Y = int(round(Yoff/0.001))
+
+    # Now calculate displacement for each position so that we end up at specified origin
+    DX = X - self.parent.minx
+    DY = Y - self.parent.miny
+
+    # Now round down to 2.4 format for inch and mm but not Kicad
+    # this scaling seems to work for either unit system
+    if config.Config['measurementunits'] == 'mm':                 # KHK for layout.cfg file
+        if config.Config['kicadfilesinmetricunits'] == 1:            # KHK for Kicad metric file support
+           DX = int(round(DX))
+           DY = int(round(DY)) 
+        else:                       # mm but not Kicad ... like in version 1.9.  
+           DX = int(round(DX/10.0))
+           DY = int(round(DY/10.0)) 
+    else:                                                           # KHK inch
+        DX = int(round(DX/10.0))
+        DY = int(round(DY/10.0))
+
+    ltools = self.findTools(diameter)
+
+    if config.Config['excellonleadingzeros']:
+      fmtstr = 'X%06dY%06d\n'
+    else:
+      fmtstr = 'X%dY%d\n'
+
+    # Boogie
+    for ltool in ltools:
+      if self.xcommands.has_key(ltool):
+        for cmd in self.xcommands[ltool]:
+          if len(cmd) == 3:
+            x, y, g = cmd
+            if g in ('M15', 'M16'):
+              fid.write(g + "\n")
+            else:
+              fid.write(g + (fmtstr % (x+DX, y+DY)))
 
   def writeDrillHits(self, fid, diameter, toolNum, Xoff, Yoff):
     """Write a drill hit pattern. diameter is tool diameter in inches, while toolNum is
@@ -1237,6 +1301,9 @@ class Job:
   def writeExcellon(self, fid, layername, diameter, x, y):
     self.drill_layers[layername].writeExcellon(fid, diameter, x, y)
 
+  def writeExcellonRout(self, fid, layername, diameter, x, y):
+    self.drill_layers[layername].writeExcellonRout(fid, diameter, x, y)
+
   def writeDrillHits(self, fid, layername, diameter, toolNum, x, y):
     self.drill_layers[layername].writeDrillHits(fid, diameter, toolNum, x, y)
 
@@ -1261,6 +1328,10 @@ class JobLayout:
   def writeExcellon(self, fid, layername, diameter):
     assert self.x is not None
     self.job.writeExcellon(fid, layername, diameter, self.x, self.y)
+
+  def writeExcellonRout(self, fid, layername, diameter):
+    assert self.x is not None
+    self.job.writeExcellonRout(fid, layername, diameter, self.x, self.y)
 
   def writeDrillHits(self, fid, layername, diameter, toolNum):
     assert self.x is not None
